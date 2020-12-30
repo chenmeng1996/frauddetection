@@ -40,25 +40,26 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
 	private static final double LARGE_AMOUNT = 500.00;
 	private static final long ONE_MINUTE = 60 * 1000;
 
-	// ValueState 的作用域始终限于当前的 key，即信用卡帐户
+	// record whether previous transaction was small
 	private transient ValueState<Boolean> flagState;
 
-	// 定时器时间的状态
+	// record next tigger time of timer
 	private transient ValueState<Long> timerState;
 
 
 	@Override
 	public void processElement(
-			Transaction transaction,
+			Transaction transaction, // each element in data stream
 			Context context,
-			Collector<Alert> collector) throws Exception {
+			Collector<Alert> collector // collect Alert element, send to downstream
+	) throws Exception {
 
 		// Get the current state for the current key
 		Boolean lastTransactionWasSmall = flagState.value();
 
 		if (lastTransactionWasSmall != null) {
 			if (transaction.getAmount() > LARGE_AMOUNT) {
-				// Output an alert downstream
+				// if a small transaction is followed by a large one, output an alert downstream
 				Alert alert = new Alert();
 				alert.setId(transaction.getAccountId());
 
@@ -68,18 +69,20 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
 			cleanUp(context);
 		}
 
+		// record a recent small transaction
 		if (transaction.getAmount() < SMALL_AMOUNT) {
 			flagState.update(true);
 
-			// set the timer and timer state
+			// set the timer, trigger after 1 minute
 			long timer = context.timerService().currentProcessingTime() + ONE_MINUTE;
 			context.timerService().registerProcessingTimeTimer(timer);
-			// 1分钟内再次触发，则延迟定时器的时间
+			// record the trigger time
 			timerState.update(timer);
 		}
 	}
 
-	// 注册状态
+	// initialization method for this function.
+	// in the method, initialize all state.
 	@Override
 	public void open(Configuration parameters) throws Exception {
 		ValueStateDescriptor<Boolean> flagDescriptor = new ValueStateDescriptor<>("flag", Types.BOOLEAN);
@@ -89,21 +92,19 @@ public class FraudDetector extends KeyedProcessFunction<Long, Transaction, Alert
 		timerState = getRuntimeContext().getState(timerDescriptor);
 	}
 
-	// 定时器触发，调用该方法
+	// method that timer trigger
 	@Override
 	public void onTimer(long timestamp, OnTimerContext ctx, Collector<Alert> out) throws Exception {
-		// remove flag after 1 minite
+		// remove flag after 1 minute
 		timerState.clear();
 		flagState.clear();
 	}
 
-	// 取消定时器
+	// clean all state, delete timer
 	private void cleanUp(Context ctx) throws IOException {
-		// delete timer
 		Long timer = timerState.value();
 		ctx.timerService().deleteProcessingTimeTimer(timer);
 
-		// clean up all state
 		timerState.clear();
 		flagState.clear();
 	}

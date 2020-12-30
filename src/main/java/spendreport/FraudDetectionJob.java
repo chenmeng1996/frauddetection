@@ -30,26 +30,26 @@ import org.apache.flink.walkthrough.common.source.TransactionSource;
  */
 public class FraudDetectionJob {
 	public static void main(String[] args) throws Exception {
-		// 设置执行环境
+		// enviroment
 		StreamExecutionEnvironment env = StreamExecutionEnvironment.getExecutionEnvironment();
 
-		// 数据源
+		// process data source of transaction, get a origin data stream
 		DataStream<Transaction> transactions = env
 			.addSource(new TransactionSource())
 			.name("transactions");
 
-		// 对数据源进行流操作
+		// process origin data stream, get another data stream
 		DataStream<Alert> alerts = transactions
-			.keyBy(Transaction::getAccountId) // 按照账户id进行分区
-			.process(new FraudDetector()) // 对流上的每个消息调用定义好的函数
+			.keyBy(Transaction::getAccountId) // partition by acoount id in transaction
+			.process(new FraudDetector()) // each message on the stream calls a defined function
 			.name("fraud-detector");
 
-		// 输出结果
+		// output
 		alerts
 			.addSink(new AlertSink()) // INFO级别打印每个Alert的数据记录，而不是持久存储，方便查看结果
 			.name("send-alerts");
 
-		// 运行作业
+		// run the job
 		env.execute("Fraud Detection");
 	}
 }
